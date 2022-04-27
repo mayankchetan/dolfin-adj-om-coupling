@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# .. _poisson-topology-example:
+# .. _poisson-topology-example with OpenMDAO coupling:
 #
 # .. py:currentmodule:: dolfin_adjoint
 #
@@ -64,7 +64,10 @@
 #
 # First, the :py:mod:`dolfin` and :py:mod:`dolfin_adjoint` modules are
 # imported:
-
+from logging import LogRecord
+import os
+from pyexpat import model
+from turtle import pos
 from fenics import *
 
 from fenics_adjoint import *
@@ -75,13 +78,16 @@ from fenics_adjoint import *
 # optimisation algorithm.
 
 
-try:
-    from pyadjoint import ipopt  # noqa: F401
-except ImportError:
-    print("""This example depends on IPOPT and Python ipopt bindings. \
-  When compiling IPOPT, make sure to link against HSL, as it \
-  is a necessity for practical problems.""")
-    raise
+# try:
+#     from pyadjoint import ipopt  # noqa: F401
+# except ImportError:
+#     print("""This example depends on IPOPT and Python ipopt bindings. \
+#   When compiling IPOPT, make sure to link against HSL, as it \
+#   is a necessity for practical problems.""")
+#     raise
+
+import openmdao.api as om
+
 
 # turn off redundant output in parallel
 parameters["std_out_all_processes"] = False
@@ -136,6 +142,10 @@ f = interpolate(Constant(1.0e-2), P)  # the volume source term for the PDE
 
 def forward(a):
     """Solve the forward problem for a given material distribution a(x)."""
+    print('*****************')
+    print(type(a))
+    print('*****************')
+    
     T = Function(P, name="Temperature")
     v = TestFunction(P)
 
@@ -174,7 +184,7 @@ if __name__ == "__main__":
 # executed on every functional derivative calculation
 # <../../documentation/optimisation>`.
 
-    controls = File("output/control_iterations.pvd")
+    controls = File(str(os.path.join(os.path.dirname(os.path.realpath(__file__)),"output/control_iterations.pvd")))
     a_viz = Function(A, name="ControlVisualisation")
 
 
@@ -255,15 +265,84 @@ if __name__ == "__main__":
 # represents the optimisation problem to be solved. We instantiate
 # this and pass it to :py:mod:`ipopt` to solve:
 
-    problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints=VolumeConstraint(V))
+    # problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints=VolumeConstraint(V))
 
-    parameters = {"acceptable_tol": 1.0e-3, "maximum_iterations": 100}
-    solver = IPOPTSolver(problem, parameters=parameters)
-    a_opt = solver.solve()
+    # parameters = {"acceptable_tol": 1.0e-3, "maximum_iterations": 100}
+    # solver = IPOPTSolver(problem, parameters=parameters)
+    # a_opt = solver.solve()
 
-    File("output/final_solution.pvd") << a_opt
-    xdmf_filename = XDMFFile(MPI.comm_world, "output/final_solution.xdmf")
-    xdmf_filename.write(a_opt)
+    # File("output/final_solution.pvd") << a_opt
+    # xdmf_filename = XDMFFile(MPI.comm_world, "output/final_solution.xdmf")
+    # xdmf_filename.write(a_opt)
+
+
+    # Defining the OpenMDAO componant for objective function
+    class Poission(om.ExplicitComponent):
+        def setup(self):
+            self.add_input('a',val=0.4)
+
+            self.add_output('t',val=0.0)
+        
+        def setup_partials(self):
+            self.declare_partials('t','a')
+
+        def compute_partials(self, inputs, partials, discrete_inputs=None):
+            a = inputs['a']
+            partials['t','a'] = Jhat(a)
+
+        def compute(self,inputs,output):
+            a = inputs['a']
+            output['t'] = forward(a)
+
+    # (Re)Defining the OpenMDAO componant for contraint fucntion
+
+    class VolumeConstraintOM(om.ExplicitComponent):
+        def initialize(self):
+            self.V = float(V)
+            self.smass = assemble(TestFunction(A) * Constant(1) * dx)
+            self.tmpvec = Function(A)
+
+        def setup(self):
+            self.add_input('a')
+
+            self.add_output('g')
+
+        def setup_partials(self):
+            self.declare_partials('g','a')
+
+        def compute(self,inputs,output):
+            m = inputs['a']
+
+            from pyadjoint.reduced_functional_numpy import set_local
+            set_local(self.tmpvec, m)
+# Compute the integral of the control over the domain
+            integral = self.smass.inner(self.tmpvec.vector())
+            if MPI.rank(MPI.comm_world) == 0:
+                print("Current control integral: ", integral)
+            output['g'] = self.V - integral
+
+        def compute_partials(self, inputs, partials, discrete_inputs=None):
+            partials['g','a'] = [-self.smass]
+
+
+    # Building the problem
+    problem = om.Problem()
+    problem.model.add_subsystem('poisson',Poission(),promotes_inputs=['a'])
+    problem.model.add_subsystem('constraint',VolumeConstraintOM(),promotes_inputs=['a'])
+
+    # setting the inital values
+    problem.model.set_input_defaults('a',0.4)
+
+    # setting up the optimisation
+    problem.driver = om.ScipyOptimizeDriver()
+    problem.driver.options['optimizer'] = 'SLSQP' 
+
+    problem.model.add_design_var('a',lower=lb,upper=ub)
+    problem.model.add_objective('poisson.t')
+    problem.model.add_constraint('constraint.g', lower=0.0)
+
+    problem.setup()
+    problem.run_driver()
 
 # The example code can be found in ``examples/poisson-topology/`` in the
 # ``dolfin-adjoint`` source tree, and executed as follows:
