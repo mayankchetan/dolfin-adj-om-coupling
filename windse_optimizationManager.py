@@ -28,15 +28,16 @@ if not main_file in ["sphinx-build", "__main__.py"]:
     import copy
     from sys import platform
     import time
-    from memory_profiler import memory_usage
+    # from memory_profiler import memory_usage
     from pyadjoint.tape import no_annotations
 
-    ### Import the cumulative parameters ###
-    from windse import windse_parameters
-    import windse.objective_functions as obj_funcs
+    # ### Import the cumulative parameters ###
+    # from windse import windse_parameters
+    # import windse.objective_functions as obj_funcs
 
-    ### Check if we need dolfin_adjoint ###
-    if windse_parameters.dolfin_adjoint:
+    # ### Check if we need dolfin_adjoint ###
+    # if windse_parameters.dolfin_adjoint:
+    if 1:
         from dolfin_adjoint import *
         from pyadjoint import tape
 
@@ -245,53 +246,68 @@ class Optimizer(object):
     """
     def __init__(self, solver):
         ### save a reference of option and create local version specifically of domain options ###
-        self.params = windse_parameters
-        self.solver = solver
-        self.problem = solver.problem
-        self.farm = solver.problem.farm
-        self.fprint = self.params.fprint
-        self.tag_output = self.params.tag_output
-        self.debug_mode = self.params.debug_mode
-        self.xscale = self.problem.dom.xscale
+        # self.params = windse_parameters
+        # self.solver = solver
+        # self.problem = solver.problem
+        # self.farm = solver.problem.farm
+        # self.fprint = self.params.fprint
+        # self.tag_output = self.params.tag_output
+        # self.debug_mode = self.params.debug_mode
+        # self.xscale = self.problem.dom.xscale
 
-        ### Update attributes based on params file ###
-        for key, value in self.params["optimization"].items():
-            if isinstance(value,list):
-                setattr(self,key,np.array(value))
-            else:
-                setattr(self,key,value)
+        # ### Update attributes based on params file ###
+        # for key, value in self.params["optimization"].items():
+        #     if isinstance(value,list):
+        #         setattr(self,key,np.array(value))
+        #     else:
+        #         setattr(self,key,value)
 
-        ### Process parameters ###
-        if "layout" in self.control_types:
-            if isinstance(self.layout_bounds,(list, np.ndarray)):
-                self.layout_bounds = np.array(self.layout_bounds)
-            elif self.layout_bounds == "wind_farm":
-                self.layout_bounds = np.array([self.farm.ex_x,self.farm.ex_y])
-            else:
-                self.layout_bounds = np.array([[0,0],[0,0]])
-            self.layout_bounds = self.layout_bounds*self.xscale
-            
+        # ### Process parameters ###
+        # if "layout" in self.control_types:
+        #     if isinstance(self.layout_bounds,(list, np.ndarray)):
+        #         self.layout_bounds = np.array(self.layout_bounds)
+        #     elif self.layout_bounds == "wind_farm":
+        #         self.layout_bounds = np.array([self.farm.ex_x,self.farm.ex_y])
+        #     else:
+        #         self.layout_bounds = np.array([[0,0],[0,0]])
+        #     self.layout_bounds = self.layout_bounds*self.xscale
+
+        for key, value in solver.items():
+            setattr(self,key,value)
+
+        # self.control_types = solver['control_types']
+        # self.control_var = solver['control_var']
+        # self.control_var_init = solver['control_var_init']
+        # self.opt_type = solver['opt_type']
+        # self.opt_routine = solver['opt_routine']
+        # self.Jhat = solver['Jhat']
+        # self.objConstraint = solver['objConstraint']
+        # self.folder = solver['folder']
+
+        # Hardcode parameters
+        self.current_tab = 0
+        self.rank = 0
+
         self.iteration = 0
 
         self.fprint("Setting Up Optimizer",special="header")
         
         self.fprint("Controls: {0}".format(self.control_types))
         self.CreateControls()
- 
-        
+
         self.fprint("Define Bounds")
         self.CreateBounds()
 
         # self.get_minimum_distance_constraint_func(self.controls, 2*np.mean(self.problem.farm.HH))
 
         self.fprint("Define Optimizing Functional")
-        self.J = self.solver.J
+        self.J = solver['J']
         self.Jhat = ReducedFunctional(self.J, self.controls, eval_cb_post=self.ReducedFunctionalCallback)
 
         self.Jcurrent = self.J
 
         self.fprint("Number of Controls: {:d}".format(len(self.controls)),special="header")
-        self.OptPrintFunction(self.init_vals,None)
+        # self.OptPrintFunction(self.init_vals,None)
         self.fprint("",special="footer")
 
         self.SetupConstraints()
@@ -301,19 +317,19 @@ class Optimizer(object):
         ### Build constraints ###
         constraints = []
 
-        ### Pop off the layout specific constraint first ###
-        if "min_dist" in self.constraint_types.keys():
-            min_dist_dict = self.constraint_types.pop("min_dist")
-            if "layout" in self.control_types:
-                x_inds = self.indexes[0]
-                y_inds = self.indexes[1] 
-                RD = np.max(self.farm.get_rotor_diameters())
-                constraints.append(MinimumDistanceConstraint(x_inds, y_inds, min_dist_dict["target"]*RD, min_dist_dict["scale"]))
+        # ### Pop off the layout specific constraint first ###
+        # if "min_dist" in self.constraint_types.keys():
+        #     min_dist_dict = self.constraint_types.pop("min_dist")
+        #     if "layout" in self.control_types:
+        #         x_inds = self.indexes[0]
+        #         y_inds = self.indexes[1] 
+        #         RD = np.max(self.farm.get_rotor_diameters())
+        #         constraints.append(MinimumDistanceConstraint(x_inds, y_inds, min_dist_dict["target"]*RD, min_dist_dict["scale"]))
 
         ### Iterate over remaining objective based constraints
-        for key, value in self.constraint_types.items():
-            constraints.append(ObjectiveConstraint(self.solver, self.controls, key, value["target"], value["scale"], value["kwargs"]))
-
+        # for key, value in self.constraint_types.items():
+            # constraints.append(ObjectiveConstraint(self.solver, self.controls, key, value["target"], value["scale"], value["kwargs"]))
+        constraints.append(self.objConstraint)
         ### Merge constraints into one since pyadjoint has a bug when handling more than one
         if len(constraints) > 0:
             self.merged_constraint = MergedConstraint(constraints,self.fprint)
@@ -373,119 +389,131 @@ class Optimizer(object):
         self.init_vals = []
         j = 0
 
-        if "layout" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                self.indexes[0].append(j)
-                j+=1
-                self.names.append("x_"+repr(i))
-                self.controls.append(Control(self.farm.turbines[i].mx))
-                self.control_pointers.append(("x",i))
-                self.init_vals.append(Constant(float(self.farm.turbines[i].mx)))
+        if "MaterialDensity" in self.control_types:
+            self.names.append("MaterialProperty")
+            self.controls.append(Control(self.control_var))
+            self.control_pointers.append(("a"))
+            self.init_vals.append(Constant(float(self.control_var_init)))
+        else:
+            print("Warning: not defined controls")
 
-                self.indexes[1].append(j)
-                j+=1
-                self.names.append("y_"+repr(i))
-                self.controls.append(Control(self.farm.turbines[i].my))
-                self.control_pointers.append(("y",i))
-                self.init_vals.append(Constant(float(self.farm.turbines[i].my)))
+        # if "layout" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         self.indexes[0].append(j)
+        #         j+=1
+        #         self.names.append("x_"+repr(i))
+        #         self.controls.append(Control(self.farm.turbines[i].mx))
+        #         self.control_pointers.append(("x",i))
+        #         self.init_vals.append(Constant(float(self.farm.turbines[i].mx)))
 
-        if "yaw" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                self.indexes[2].append(j)
-                j+=1
-                self.names.append("yaw_"+repr(i))
-                self.controls.append(Control(self.farm.turbines[i].myaw))
-                self.control_pointers.append(("yaw",i))
-                self.init_vals.append(Constant(float(self.farm.turbines[i].myaw)))
+        #         self.indexes[1].append(j)
+        #         j+=1
+        #         self.names.append("y_"+repr(i))
+        #         self.controls.append(Control(self.farm.turbines[i].my))
+        #         self.control_pointers.append(("y",i))
+        #         self.init_vals.append(Constant(float(self.farm.turbines[i].my)))
 
-        if "axial" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                self.indexes[3].append(j)
-                j+=1
-                self.names.append("axial_"+repr(i))
-                self.controls.append(Control(self.farm.turbines[i].maxial))
-                self.control_pointers.append(("axial",i))
-                self.init_vals.append(Constant(float(self.farm.turbines[i].maxial)))
+        # if "yaw" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         self.indexes[2].append(j)
+        #         j+=1
+        #         self.names.append("yaw_"+repr(i))
+        #         self.controls.append(Control(self.farm.turbines[i].myaw))
+        #         self.control_pointers.append(("yaw",i))
+        #         self.init_vals.append(Constant(float(self.farm.turbines[i].myaw)))
 
-        if "lift" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                for k in range(self.farm.turbines[0].num_blade_segments):
-                    self.control_pointers.append(("lift",[i,k]))
-                    self.indexes[4].append(j)
-                    j+=1
-                    self.names.append("lift_"+repr(i)+"_"+repr(k))
-                    self.controls.append(Control(self.farm.turbines[i].mlift[k]))
-                    self.init_vals.append(Constant(float(self.farm.turbines[i].mlift[k])))
+        # if "axial" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         self.indexes[3].append(j)
+        #         j+=1
+        #         self.names.append("axial_"+repr(i))
+        #         self.controls.append(Control(self.farm.turbines[i].maxial))
+        #         self.control_pointers.append(("axial",i))
+        #         self.init_vals.append(Constant(float(self.farm.turbines[i].maxial)))
 
-        if "drag" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                for k in range(self.farm.turbines[0].num_blade_segments):
-                    self.control_pointers.append(("drag",[i,k]))
-                    self.indexes[5].append(j)
-                    j+=1
-                    self.names.append("drag_"+repr(i)+"_"+repr(k))
-                    self.controls.append(Control(self.farm.turbines[i].mdrag[k]))
-                    self.init_vals.append(Constant(float(self.farm.turbines[i].mdrag[k])))
+        # if "lift" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         for k in range(self.farm.turbines[0].num_blade_segments):
+        #             self.control_pointers.append(("lift",[i,k]))
+        #             self.indexes[4].append(j)
+        #             j+=1
+        #             self.names.append("lift_"+repr(i)+"_"+repr(k))
+        #             self.controls.append(Control(self.farm.turbines[i].mlift[k]))
+        #             self.init_vals.append(Constant(float(self.farm.turbines[i].mlift[k])))
 
-        if "chord" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                for k in range(self.farm.turbines[0].num_blade_segments):
-                    self.control_pointers.append(("chord",[i,k]))
-                    self.indexes[6].append(j)
-                    j+=1
-                    self.names.append("chord_"+repr(i)+"_"+repr(k))
-                    self.controls.append(Control(self.farm.turbines[i].mchord[k]))
-                    self.init_vals.append(Constant(float(self.farm.turbines[i].mchord[k])))
+        # if "drag" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         for k in range(self.farm.turbines[0].num_blade_segments):
+        #             self.control_pointers.append(("drag",[i,k]))
+        #             self.indexes[5].append(j)
+        #             j+=1
+        #             self.names.append("drag_"+repr(i)+"_"+repr(k))
+        #             self.controls.append(Control(self.farm.turbines[i].mdrag[k]))
+        #             self.init_vals.append(Constant(float(self.farm.turbines[i].mdrag[k])))
+
+        # if "chord" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         for k in range(self.farm.turbines[0].num_blade_segments):
+        #             self.control_pointers.append(("chord",[i,k]))
+        #             self.indexes[6].append(j)
+        #             j+=1
+        #             self.names.append("chord_"+repr(i)+"_"+repr(k))
+        #             self.controls.append(Control(self.farm.turbines[i].mchord[k]))
+        #             self.init_vals.append(Constant(float(self.farm.turbines[i].mchord[k])))
         self.num_controls = len(self.controls)
 
     def CreateBounds(self):
         lower_bounds = []
         upper_bounds = []
 
-        if "layout" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                lower_bounds.append(Constant((self.layout_bounds[0][0])))# + self.farm.radius[i])))
-                lower_bounds.append(Constant((self.layout_bounds[1][0])))# + self.farm.radius[i])))
-                upper_bounds.append(Constant((self.layout_bounds[0][1])))# - self.farm.radius[i])))
-                upper_bounds.append(Constant((self.layout_bounds[1][1])))# - self.farm.radius[i])))
+        if "a" in self.control_types:
+            lower_bounds.append(Constant(0))
+            upper_bounds.append(Constant(1))
 
-        if "yaw" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                lower_bounds.append(Constant(-45*pi/180.0))
-                upper_bounds.append(Constant(45*pi/180.0))
+        # if "layout" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         lower_bounds.append(Constant((self.layout_bounds[0][0])))# + self.farm.radius[i])))
+        #         lower_bounds.append(Constant((self.layout_bounds[1][0])))# + self.farm.radius[i])))
+        #         upper_bounds.append(Constant((self.layout_bounds[0][1])))# - self.farm.radius[i])))
+        #         upper_bounds.append(Constant((self.layout_bounds[1][1])))# - self.farm.radius[i])))
 
-        if "axial" in self.control_types:
-            for i in rself.solver.opt_turb_id:
-                lower_bounds.append(Constant(0))
-                upper_bounds.append(Constant(1.))
+        # if "yaw" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         lower_bounds.append(Constant(-45*pi/180.0))
+        #         upper_bounds.append(Constant(45*pi/180.0))
 
-        if "lift" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                num_blade_segments = self.farm.turbines[i].num_blade_segments
-                for k in range(num_blade_segments):
-                    lower_bounds.append(Constant(0))
-                    upper_bounds.append(Constant(2.))
+        # if "axial" in self.control_types:
+        #     for i in rself.solver.opt_turb_id:
+        #         lower_bounds.append(Constant(0))
+        #         upper_bounds.append(Constant(1.))
 
-        if "drag" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                num_blade_segments = self.farm.turbines[i].num_blade_segments
-                for k in range(num_blade_segments):
-                    lower_bounds.append(Constant(0))
-                    upper_bounds.append(Constant(2.))
+        # if "lift" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         num_blade_segments = self.farm.turbines[i].num_blade_segments
+        #         for k in range(num_blade_segments):
+        #             lower_bounds.append(Constant(0))
+        #             upper_bounds.append(Constant(2.))
 
-        if "chord" in self.control_types:
-            for i in self.solver.opt_turb_id:
-                c_avg = 0
-                num_blade_segments = self.farm.turbines[i].num_blade_segments
-                max_chord = self.farm.turbines[i].max_chord
-                baseline_chord = self.farm.turbines[i].baseline_chord
-                for k in range(num_blade_segments):
-                    modifier = 2.0
-                    max_chord = max_chord
-                    seg_chord = baseline_chord[k]
-                    lower_bounds.append(Constant(seg_chord/modifier))
-                    upper_bounds.append(Constant(np.maximum(np.minimum(seg_chord*modifier,max_chord),c_avg)))
-                    c_avg = (c_avg*k+seg_chord)/(k+1)
+        # if "drag" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         num_blade_segments = self.farm.turbines[i].num_blade_segments
+        #         for k in range(num_blade_segments):
+        #             lower_bounds.append(Constant(0))
+        #             upper_bounds.append(Constant(2.))
+
+        # if "chord" in self.control_types:
+        #     for i in self.solver.opt_turb_id:
+        #         c_avg = 0
+        #         num_blade_segments = self.farm.turbines[i].num_blade_segments
+        #         max_chord = self.farm.turbines[i].max_chord
+        #         baseline_chord = self.farm.turbines[i].baseline_chord
+        #         for k in range(num_blade_segments):
+        #             modifier = 2.0
+        #             max_chord = max_chord
+        #             seg_chord = baseline_chord[k]
+        #             lower_bounds.append(Constant(seg_chord/modifier))
+        #             upper_bounds.append(Constant(np.maximum(np.minimum(seg_chord*modifier,max_chord),c_avg)))
+        #             c_avg = (c_avg*k+seg_chord)/(k+1)
 
         self.bounds = [lower_bounds,upper_bounds]
 
@@ -567,7 +595,7 @@ class Optimizer(object):
 
     def SaveControls(self,m):
 
-        folder_string = self.params.folder+"/data/"
+        folder_string = self.folder+"/data/"
         if not os.path.exists(folder_string): os.makedirs(folder_string)
 
         # new_values = {}
@@ -581,18 +609,18 @@ class Optimizer(object):
         #     new_values["a"]   = m_f[self.indexes[3]]
 
         # self.problem.farm.UpdateControls(**new_values)
-        self.problem.farm.save_wind_farm(val=self.iteration)
+        # self.problem.farm.save_wind_farm(val=self.iteration)
         # print(m)
         # print(type(m))
         m_new = np.array(m,dtype=float)
         m_old = []
-        for control_name, index in self.control_pointers:
-            if not isinstance(index,int):
-                turb_id = index[0]
-                seg_id = index[1]
-                m_old.append(float(getattr(self.farm.turbines[turb_id],control_name)[seg_id]))
-            else:
-                m_old.append(float(getattr(self.farm.turbines[index],control_name)))
+        # for control_name, index in self.control_pointers:
+        #     if not isinstance(index,int):
+        #         turb_id = index[0]
+        #         seg_id = index[1]
+        #         m_old.append(float(getattr(self.farm.turbines[turb_id],control_name)[seg_id]))
+        #     else:
+        #         m_old.append(float(getattr(self.farm.turbines[index],control_name)))
         # print(m_new)
         # print(type(m_new))            
         if self.iteration == 0:
@@ -637,7 +665,7 @@ class Optimizer(object):
         # print(np.array(self.problem.farm.myaw,dtype=float))
         self.SaveControls(m)
         self.ListControls(m)
-        self.SaveFunctions()
+        # self.SaveFunctions()
         self.solver.EvaluateObjective(opt_iter=self.iteration)
 
         if "layout" in self.control_types or "yaw" in self.control_types:
@@ -671,7 +699,7 @@ class Optimizer(object):
 
         options = {
             "disp" : True,
-            "folder" : self.params.folder,
+            "folder" : self.folder,
             }
         if hasattr(self, 'obj_ref'):
             options["obj_ref"] = self.obj_ref
@@ -699,7 +727,9 @@ class Optimizer(object):
 
         if self.num_controls == 1:
             self.m_opt = (self.m_opt,)
-        self.OptPrintFunction(m_opt)
+        # self.OptPrintFunction(m_opt)
+
+
         # self.fprint("Assigning New Values")
         # new_values = {}
         # m_f = np.array(m_opt,dtype=float)
@@ -745,6 +775,53 @@ class Optimizer(object):
 
 
         return self.conv_rate
+
+    def fprint(self,string,tab=None,offset=0,special=None):
+        """
+        This is just a fancy print function that will tab according to where
+        we are in the solve
+
+        Args:
+            string (str): the string for printing
+
+        :Keyword Arguments:
+            * **tab** (*int*): the tab level
+
+        """
+        ### Check Processor ###
+        if self.rank == 0:
+            ### Check if tab length has been overridden
+            if tab is None:
+                tab = self.current_tab
+            
+            ### Check if we are starting or ending a section
+            if special=="header":
+                self.current_tab += 1
+                self.fprint("",tab=tab)
+            elif special =="footer":
+                self.current_tab -= 1
+                tab -= 1
+                self.fprint("",tab=tab+1)
+
+            ### Apply Offset if provided ###
+            tab += offset
+
+            ### Create Tabbed string ###
+            tabbed = "|    "*tab
+
+            ### Apply Tabbed string ###
+            if isinstance(string,str):
+                string = tabbed+string
+            else:
+                string = tabbed+repr(string)
+
+            ### Print ###
+            # print(string, flush=True)
+            print(string)
+            sys.stdout.flush()
+
+            if special=="header":
+                self.fprint("",tab=tab+1)
 
 class MinimumDistanceConstraint(InequalityConstraint):
     def __init__(self, x_inds, y_inds, target=200, scale=1.0):
@@ -862,7 +939,7 @@ class MergedConstraint(InequalityConstraint):
         for con in self.constraint_list:
             val = con.function(m)
             out = np.append(out, val)
-            self.fprint(f"Constraint, {con.name}, return with value: {con.cur_val} and target: {con.target}")
+            # self.fprint(f"Constraint, VolumeConst, return with value: {con.cur_val} and target: {con.target}")
         self.fprint("Completed",special="footer")
 
         stop = time.time()
