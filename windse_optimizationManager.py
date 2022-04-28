@@ -466,9 +466,11 @@ class Optimizer(object):
         lower_bounds = []
         upper_bounds = []
 
-        if "a" in self.control_types:
-            lower_bounds.append(Constant(0))
-            upper_bounds.append(Constant(1))
+        if "MaterialDensity" in self.control_types:
+            # lower_bounds.append(Constant(0))
+            # upper_bounds.append(Constant(1))
+            lower_bounds.append(self.lower_bounds)
+            upper_bounds.append(self.upper_bounds)
 
         # if "layout" in self.control_types:
         #     for i in self.solver.opt_turb_id:
@@ -664,9 +666,9 @@ class Optimizer(object):
         # print(np.array(self.control_pointers,dtype=float))
         # print(np.array(self.problem.farm.myaw,dtype=float))
         self.SaveControls(m)
-        self.ListControls(m)
+        # self.ListControls(m)
         # self.SaveFunctions()
-        self.solver.EvaluateObjective(opt_iter=self.iteration)
+        # self.solver.EvaluateObjective(opt_iter=self.iteration)
 
         if "layout" in self.control_types or "yaw" in self.control_types:
             self.problem.farm.plot_farm(filename="wind_farm_step_"+repr(self.iteration),objective_value=self.Jcurrent)
@@ -676,7 +678,7 @@ class Optimizer(object):
             c_upper = np.array(self.bounds[1])[self.indexes[6]] 
             self.problem.farm.plot_chord(filename="chord_step_"+repr(self.iteration),objective_value=self.Jcurrent,bounds=[c_lower,c_upper])
 
-        self.DebugOutput(self.iteration, m)
+        # self.DebugOutput(self.iteration, m)
 
         self.iteration += 1
 

@@ -89,6 +89,8 @@ from fenics_adjoint import *
 import openmdao.api as om
 import windse_optimizationManager as optiManager
 
+os.environ['OPENMDAO_REPORTS'] = '0'
+
 # turn off redundant output in parallel
 parameters["std_out_all_processes"] = False
 
@@ -209,8 +211,8 @@ if __name__ == "__main__":
 # Now let us configure the control constraints. The bound constraints
 # are easy:
 
-    lb = 0.0
-    ub = 1.0
+    lb = interpolate(Constant(0),A)
+    ub = interpolate(Constant(1),A)
 
 # The volume constraint involves a little bit more work. Following
 # :cite:`nocedal2006`, inequality constraints are represented as
@@ -352,7 +354,9 @@ if __name__ == "__main__":
                 'folder':str(os.path.join(os.path.dirname(os.path.realpath(__file__)),"output")),
                 'obj_ref':1,
                 'obj_ref0':0,
-                'check_totals':False}
+                'check_totals':False,
+                'upper_bounds':ub,
+                'lower_bounds':lb}
     problem = optiManager.Optimizer(solver)
 
     optimialVals = problem.Optimize()
